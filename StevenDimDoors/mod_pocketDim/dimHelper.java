@@ -40,6 +40,7 @@ import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import net.minecraftforge.common.DimensionManager;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.network.PacketDispatcher;
+import cpw.mods.fml.common.registry.GameRegistry;
 import cpw.mods.fml.relauncher.Side;
 
 public class dimHelper extends DimensionManager
@@ -345,7 +346,11 @@ public class dimHelper extends DimensionManager
 					
 					
 
-						this.teleportEntity(world, entity, linkData);							    
+						this.teleportEntity(world, entity, linkData);		
+						if(entity instanceof EntityPlayerMP&&world.provider.dimensionId!=linkData.destDimID)
+						{
+							      GameRegistry.onPlayerChangedDimension((EntityPlayer)entity);
+						}
 						
 						entity.worldObj.playSoundEffect(entity.posX, entity.posY, entity.posZ, "mob.endermen.portal", 1.0F, 1.0F);
 						
