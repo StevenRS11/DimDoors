@@ -99,7 +99,6 @@ public class dimDoor extends BlockContainer
     			
 
     				
-    			System.out.println(linkData.destDimID);
     				dimHelper.instance.teleportToPocket(par1World, linkData, par5Entity);
     				this.onPoweredBlockChange(par1World, par2, par3, par4, false);
     		
