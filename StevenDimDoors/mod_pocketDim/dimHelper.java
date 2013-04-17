@@ -121,41 +121,22 @@ public class dimHelper extends DimensionManager
 	}
 	
 	
-	
+	/**
+	 * Returns the depth of the dimension ID passed in
+	 * @param DimID
+	 * @return
+	 */
 	public int getDimDepth(int DimID)
 	{
 		if(this.dimList.containsKey(DimID))
 		{
 			return (int)this.dimList.get(DimID).depth;
 		}
-		else return 1;
+		else return 0;
 	}
 	
 	
-	public void teleportToLimbo(World world,LinkData linkData, EntityPlayer player)
-	{
-		/**
-		
-		EntityPlayerMP playerMP = (EntityPlayerMP) player;
-		player.fallDistance=-700;
-		
-		
-		//World worldLimbo= this.getWorld(mod_pocketDim.limboDimID);
-		mod_pocketDim.limbo=this.getWorld(mod_pocketDim.limboDimID);
-		if(mod_pocketDim.limbo==null)
-		{
-			this.initDimension(mod_pocketDim.limboDimID);
-		}
-		else if (mod_pocketDim.limbo.provider==null)
-		{
-			this.initDimension(mod_pocketDim.limboDimID);
-
-		}
-
-		//System.out.println(worldLimbo.getHeightValue( MathHelper.floor_double(player.posX),  MathHelper.floor_double(player.posZ)));
-		playerMP.mcServer.getConfigurationManager().transferPlayerToDimension(playerMP, mod_pocketDim.limboDimID, new pocketTeleporter((WorldServer) this.getWorld(mod_pocketDim.limboDimID), linkData));
-		**/
-	}
+	
 	private Entity teleportEntity(World oldWorld, Entity entity, LinkData link) //this beautiful teleport method is based off of xCompWiz's teleport function. 
 	{
 		Entity cart;
