@@ -30,7 +30,7 @@ public class RiftGenerator implements IWorldGenerator
     	//Long ntime = System.nanoTime();
     	shouldGenHere=true;
     	  
-    	if(world.provider.getDimensionName()=="PocketDim"||!mod_pocketDim.riftsInWorldGen ||world.isRemote)
+    	if(world.provider.getDimensionName()=="PocketDim"||!mod_pocketDim.riftsInWorldGen ||world.isRemote||world.provider.dimensionId==1)
         {
     	
     			this.shouldGenHere=false;

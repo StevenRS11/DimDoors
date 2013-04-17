@@ -863,8 +863,10 @@ public class SchematicLoader
 						dimHelper.instance.createLink(sideLink);
 						dimHelper.instance.createLink(sideLink.destDimID , sideLink.locDimID, sideLink.destXCoord, sideLink.destYCoord, sideLink.destZCoord, sideLink.locXCoord, sideLink.locYCoord, sideLink.locZCoord, dimHelper.instance.flipDoorMetadata(sideLink.linkOrientation));
 						
+						int blockID=Block.stoneBrick.blockID;
+						System.out.println("gennedExit");
 						
-						setBlockDirectly(world,point.getX(), point.getY()-2, point.getZ(), Block.stone.blockID,0);
+						setBlockDirectly(world,point.getX(), point.getY()-3, point.getZ(), Block.stone.blockID,0);
 					//	setBlockDirectly(world,point.getX(), point.getY()-1, point.getZ(),mod_pocketDim.ExitDoorID,sideLink.linkOrientation);
 					//	setBlockDirectly(world,point.getX(), point.getY(), point.getZ(),mod_pocketDim.ExitDoorID,8);
 
