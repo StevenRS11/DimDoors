@@ -18,8 +18,8 @@ public class MazeBuilder
 		Point3D offset = new Point3D(x - design.width() / 2, y - design.height() - 1, z - design.length() / 2);
 		SphereDecayOperation decay = new SphereDecayOperation(random, 0, 0, Block.stoneBrick.blockID, 2);
 		
-		buildRooms(design.getRoomGraph(), world, offset);
-		carveDoorways(design.getRoomGraph(), world, offset, decay, random);
+		buildRooms(design.getLayout(), world, offset);
+		carveDoorways(design.getLayout(), world, offset, decay, random);
 		
 		//placeDoors(design, world, offset);
 		
@@ -32,25 +32,25 @@ public class MazeBuilder
 		//final int DECAY_BOX_SIZE = 8  
 	}
 
-	private static void buildRooms(DirectedGraph<PartitionNode, DoorwayData> roomGraph, World world, Point3D offset)
+	private static void buildRooms(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
 	{
-		for (IGraphNode<PartitionNode, DoorwayData> node : roomGraph.nodes())
+		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
 		{
-			PartitionNode room = node.data();
+			PartitionNode room = node.data().getPartitionNode();
 			buildBox(world, offset, room.minCorner(), room.maxCorner(), Block.stoneBrick.blockID, 0);
 		}
 	}
 	
-	private static void carveDoorways(DirectedGraph<PartitionNode, DoorwayData> roomGraph, World world,
+	private static void carveDoorways(DirectedGraph<RoomData, DoorwayData> layout, World world,
 			Point3D offset, SphereDecayOperation decay, Random random)
 	{	
 		char axis;
 		Point3D lower;
 		DoorwayData doorway;
 		
-		for (IGraphNode<PartitionNode, DoorwayData> node : roomGraph.nodes())
+		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
 		{
-			for (IEdge<PartitionNode, DoorwayData> passage : node.outbound())
+			for (IEdge<RoomData, DoorwayData> passage : node.outbound())
 			{
 				doorway = passage.data();
 				axis = doorway.axis();
@@ -165,7 +165,6 @@ public class MazeBuilder
 		setBlockDirectly(world, x, y, z, 0, 0);
 		setBlockDirectly(world, x, y + 1, z, 0, 0);
 	}
-
 	
 	private static void buildBox(World world, Point3D offset, Point3D minCorner, Point3D maxCorner, int blockID, int metadata)
 	{
