@@ -2,7 +2,6 @@ package StevenDimDoors.experimental;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Random;
@@ -362,13 +361,23 @@ public class MazeDesigner
 		// the nodes in the graph being in a random order. We assume
 		// that was handled in a previous step!
 		
+		// We split the maze into sections by choosing core rooms and removing
+		// rooms that are a certain number of doorways away. However, for a section
+		// to be valid, it must also have enough space for at least two doors in
+		// rooms without floor holes. If a section can't fit two doors, more
+		// neighboring rooms are added until the necessary space is found or the
+		// search space is exhausted.
+		
 		final int MAX_DISTANCE = 2;
 		final int MIN_SECTION_ROOMS = 5;
+		final int MIN_SECTION_CAPACITY = 2;
 		
 		int distance;
+		int capacity;
 		RoomData room;
 		RoomData neighbor;
-		IGraphNode<RoomData, DoorwayData> current;
+		boolean hasHoles;
+		IGraphNode<RoomData, DoorwayData> roomNode;
 		
 		ArrayList<RoomData> cores = new ArrayList<RoomData>();
 		ArrayList<RoomData> removals = new ArrayList<RoomData>();
@@ -385,59 +394,67 @@ public class MazeDesigner
 			if (room.getDistance() < 0)
 			{
 				// Perform a breadth-first search to tag surrounding nodes with distances
-				room.setDistance(0);
 				ordering.add(room);
+				room.setDistance(0);
 				section.clear();
+				capacity = 0;
 				
-				while (!ordering.isEmpty())
+				while (room != null && (room.getDistance() <= MAX_DISTANCE || capacity < 2))
 				{
-					room = ordering.remove();
+					ordering.remove();
+					section.add(room);
+					roomNode = room.getLayoutNode();
 					distance = room.getDistance() + 1;
+					hasHoles = false;
 					
-					if (distance <= MAX_DISTANCE + 1)
+					// Visit neighboring rooms and assign them distances,
+					// if they don't have a proper distance assigned already.
+					// Also check for floor holes.
+					for (IEdge<RoomData, DoorwayData> edge : roomNode.inbound())
 					{
-						section.add(room);
-						current = room.getLayoutNode();
-						
-						// Visit neighboring rooms and assign them distances, if they don't
-						// have a proper distance assigned already
-						for (IEdge<RoomData, DoorwayData> edge : current.inbound())
+						neighbor = edge.head().data();
+						if (neighbor.getDistance() < 0)
 						{
-							neighbor = edge.head().data();
-							if (neighbor.getDistance() < 0)
-							{
-								neighbor.setDistance(distance);
-								ordering.add(neighbor);
-							}
+							neighbor.setDistance(distance);
+							ordering.add(neighbor);
 						}
-						for (IEdge<RoomData, DoorwayData> edge : current.outbound())
+						if (edge.data().axis() == DoorwayData.Y_AXIS)
 						{
-							neighbor = edge.tail().data();
-							if (neighbor.getDistance() < 0)
-							{
-								neighbor.setDistance(distance);
-								ordering.add(neighbor);
-							}
+							hasHoles = true;
 						}
 					}
-					else
+					for (IEdge<RoomData, DoorwayData> edge : roomNode.outbound())
 					{
-						removals.add(room);
-						break;
+						neighbor = edge.tail().data();
+						if (neighbor.getDistance() < 0)
+						{
+							neighbor.setDistance(distance);
+							ordering.add(neighbor);
+						}
 					}
+					
+					// Count this room's door capacity if it has no floor holes
+					if (!hasHoles)
+					{
+						capacity += room.estimateDoorCapacity();
+					}
+					
+					room = ordering.peek();
 				}
 				
-				// List rooms that have a distance of exactly MAX_DISTANCE + 1
-				// Those are precisely the nodes that remain in the queue
-				// We can't remove them immediately because that could break
-				// the iterator for the graph.
-				while (!ordering.isEmpty())
+				// The remaining rooms in the ordering are those that are at the
+				// frontier of structure. They must be removed to create a gap
+				// between this section and other sections. But we can't remove
+				// the rooms immediately because that could break the iterator
+				// for the graph.
+				if (!ordering.isEmpty())
 				{
-					removals.add(ordering.remove());
+					removals.addAll(ordering);
+					ordering.clear();
 				}
 				
-				// Check if this section contains enough rooms
-				if (section.size() >= MIN_SECTION_ROOMS)
+				// Check if this section contains enough rooms and capacity for doors
+				if (section.size() >= MIN_SECTION_ROOMS && capacity >= MIN_SECTION_CAPACITY)
 				{
 					cores.add(node.data());
 				}
@@ -449,7 +466,6 @@ public class MazeDesigner
 		}
 		
 		// Remove all the rooms that were listed for removal
-		// Also remove unused partitions from the partition tree
 		for (RoomData target : removals)
 		{
 			removeRoom(target, layout);
@@ -508,9 +524,12 @@ public class MazeDesigner
 			}
 		}
 		
-		// Now iterate over the list of nodes and merge their sets
-		// We only have to look at outbound edges since inbound edges mirror them
-		// Also list any Y_AXIS doorways we come across
+		// Now iterate over the list of nodes and merge their sets based on
+		// being connected by X_AXIS or Z_AXIS doorways. We only have to look
+		// at outbound edges since inbound edges mirror them. List any Y_AXIS
+		// doorways we come across to consider removing them later, depending
+		// on their impact on connectedness.
+		// doorways.
 		ArrayList<IEdge<RoomData, DoorwayData>> targets =
 				new ArrayList<IEdge<RoomData, DoorwayData>>();
 		

@@ -72,4 +72,11 @@ public class RoomData
 		partitionNode = null;
 		layoutNode = null;
 	}
+
+	public int estimateDoorCapacity()
+	{
+		int cellsX = (partitionNode.width() - 3) / 2;
+		int cellsZ = (partitionNode.length() - 3) / 2;
+		return Math.min(cellsX * cellsZ, 3);
+	}
 }
