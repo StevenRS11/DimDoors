@@ -1,7 +1,9 @@
 package StevenDimDoors.experimental;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Random;
@@ -48,6 +50,9 @@ public class MazeDesigner
 			pruneDoorways(core.getLayoutNode(), layout, random);
 		}
 		
+		// Set up the placement of dimensional doors within the maze
+		createMazeLinks(layout, cores, random);
+		
 		return new MazeDesign(root, layout);
 	}
 
@@ -62,28 +67,6 @@ public class MazeDesigner
 			attachRooms(node.leftChild(), partitions);
 			attachRooms(node.rightChild(), partitions);
 		}
-	}
-	
-	private static void removeRoom(RoomData room, DirectedGraph<RoomData, DoorwayData> layout)
-	{
-		// Remove the room from the partition tree and from the layout graph.
-		// Also remove any ancestors that become leaf nodes.
-		PartitionNode parent;
-		PartitionNode current;
-		
-		current = room.getPartitionNode();
-		while (current != null && current.isLeaf())
-		{
-			parent = current.parent();
-			current.remove();
-			current = parent;
-		}
-		
-		// Remove the room from the layout graph
-		layout.removeNode(room.getLayoutNode());
-		
-		// Wipe the room's data, as a precaution.
-		room.clear();
 	}
 	
 	private static PartitionNode partitionRooms(int width, int height, int length, int maxLevels, Random random)
@@ -468,7 +451,7 @@ public class MazeDesigner
 		// Remove all the rooms that were listed for removal
 		for (RoomData target : removals)
 		{
-			removeRoom(target, layout);
+			target.remove();
 		}
 		return cores;
 	}
@@ -529,7 +512,6 @@ public class MazeDesigner
 		// at outbound edges since inbound edges mirror them. List any Y_AXIS
 		// doorways we come across to consider removing them later, depending
 		// on their impact on connectedness.
-		// doorways.
 		ArrayList<IEdge<RoomData, DoorwayData>> targets =
 				new ArrayList<IEdge<RoomData, DoorwayData>>();
 		
@@ -557,6 +539,7 @@ public class MazeDesigner
 			if (!components.mergeSets(passage.head(), passage.tail()))
 			{
 				layout.removeEdge(passage);
+				
 			}
 		}
 		
@@ -593,4 +576,101 @@ public class MazeDesigner
 		}
 	}
 	
+	private static void createMazeLinks(DirectedGraph<RoomData, DoorwayData> layout,
+			ArrayList<RoomData> cores, Random random)
+	{
+		// We have 4 objectives here...
+		// 1. Place the entrance to the maze
+		// 2. Place internal links connecting the different sections of the maze
+		// 3. Place links to other dungeons
+		// 4. Place more internal links to confuse people
+		
+		// We need to start by counting the door capacity of each section and
+		// listing which rooms can have doors or destinations for each section.
+		int index;
+		int[] capacity = new int[cores.size()];
+		ArrayList<RoomData>[] sourceRooms = (ArrayList<RoomData>[]) Array.newInstance(cores.getClass(), cores.size());
+		ArrayList<RoomData>[] destinationRooms = (ArrayList<RoomData>[]) Array.newInstance(cores.getClass(), cores.size());
+
+		for (index = 0; index < sourceRooms.length; index++)
+		{
+			sourceRooms[index] = new ArrayList<RoomData>();
+			destinationRooms[index] = new ArrayList<RoomData>();
+			capacity[index] = listLinkRooms(cores.get(index).getLayoutNode(), sourceRooms[index], destinationRooms[index]);
+		}
+		
+		// Now we select the room in which to place the entrance.
+		// We can safely assume all source room lists are non-empty because
+		// createMazeSections() guarantees that each section has at least
+		// the capacity for 2 doors.
+		index = random.nextInt(sourceRooms.length);
+		createEntranceLink(sourceRooms[index], random.nextInt(sourceRooms[index].size()));
+		
+		// The next task is to place internal links. These links must connect
+		// the different maze sections to create a strongly connected graph.
+		
+	}
+	
+	private static int listLinkRooms(IGraphNode<RoomData, DoorwayData> core,
+			ArrayList<RoomData> sourceRooms, ArrayList<RoomData> destinationRooms)
+	{
+		int capacity = 0;
+		boolean hasHoles;
+		RoomData currentRoom;
+		IGraphNode<RoomData, DoorwayData> current;
+		IGraphNode<RoomData, DoorwayData> neighbor;
+		Stack<IGraphNode<RoomData, DoorwayData>> ordering = new Stack<IGraphNode<RoomData, DoorwayData>>();
+		HashSet<IGraphNode<RoomData, DoorwayData>> visited = new HashSet<IGraphNode<RoomData, DoorwayData>>();
+		
+		visited.add(core);
+		ordering.add(core);
+		while (!ordering.isEmpty())
+		{
+			current = ordering.pop();
+			hasHoles = false;
+			
+			for (IEdge<RoomData, DoorwayData> edge : current.outbound())
+			{
+				neighbor = edge.tail();
+				if (visited.add(neighbor))
+				{
+					ordering.add(neighbor);
+				}
+			}
+			for (IEdge<RoomData, DoorwayData> edge : current.inbound())
+			{
+				neighbor = edge.head();
+				if (visited.add(neighbor))
+				{
+					ordering.add(neighbor);
+				}
+				if (edge.data().axis() == DoorwayData.Y_AXIS)
+				{
+					hasHoles = true;
+				}
+			}
+			
+			if (!hasHoles)
+			{
+				currentRoom = current.data();
+				destinationRooms.add(currentRoom);
+				if (currentRoom.estimateDoorCapacity() > 0)
+				{
+					capacity += currentRoom.estimateDoorCapacity();
+					sourceRooms.add(currentRoom);
+				}
+			}
+		}
+		return capacity;
+	}
+	
+	private static void createEntranceLink(ArrayList<RoomData> sources, int index)
+	{
+		RoomData entranceRoom = sources.get(index);
+		LinkPlan.createEntranceLink(entranceRoom);
+		if (entranceRoom.getRemainingDoorCapacity() == 0)
+		{
+			sources.remove(index);
+		}
+	}
 }

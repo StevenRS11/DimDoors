@@ -14,6 +14,8 @@ public class MazeBuilder
 	
 	public static void generate(World world, int x, int y, int z, Random random)
 	{
+		// ISSUE FOR LATER: The room needs to be shifted so as to be centered on its entrance
+		
 		MazeDesign design = MazeDesigner.generate(random);
 		Point3D offset = new Point3D(x - design.width() / 2, y - design.height() - 1, z - design.length() / 2);
 		SphereDecayOperation decay = new SphereDecayOperation(random, 0, 0, Block.stoneBrick.blockID, 2);
@@ -21,7 +23,7 @@ public class MazeBuilder
 		buildRooms(design.getLayout(), world, offset);
 		carveDoorways(design.getLayout(), world, offset, decay, random);
 		
-		//placeDoors(design, world, offset);
+		placeDoors(design.getLayout(), world, offset);
 		
 		applyRandomDestruction(design, world, offset, decay, random);
 	}
@@ -38,6 +40,22 @@ public class MazeBuilder
 		{
 			PartitionNode room = node.data().getPartitionNode();
 			buildBox(world, offset, room.minCorner(), room.maxCorner(), Block.stoneBrick.blockID, 0);
+		}
+	}
+	
+	private static void placeDoors(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
+	{
+		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
+		{
+			RoomData room = node.data();
+			Point3D minCorner = room.getPartitionNode().minCorner();
+			if (!room.getOutboundLinks().isEmpty())
+			{
+				setBlockDirectly(world, offset.getX() + minCorner.getX(), offset.getY() + minCorner.getY() + 1,
+						offset.getZ() + minCorner.getZ(), Block.glowStone.blockID, 0);
+				setBlockDirectly(world, offset.getX() + minCorner.getX(), offset.getY() + minCorner.getY() + 2,
+						offset.getZ() + minCorner.getZ(), Block.glowStone.blockID, 0);
+			}
 		}
 	}
 	
