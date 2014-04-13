@@ -351,7 +351,7 @@ public class MazeDesigner
 		// neighboring rooms are added until the necessary space is found or the
 		// search space is exhausted.
 		
-		final int MAX_DISTANCE = 2;
+		final int MAX_DISTANCE = 2 + random.nextInt(2);
 		final int MIN_SECTION_ROOMS = 5;
 		final int MIN_SECTION_CAPACITY = 2;
 		
@@ -363,18 +363,27 @@ public class MazeDesigner
 		IGraphNode<RoomData, DoorwayData> roomNode;
 		
 		ArrayList<RoomData> cores = new ArrayList<RoomData>();
-		ArrayList<RoomData> removals = new ArrayList<RoomData>();
 		ArrayList<RoomData> section = new ArrayList<RoomData>();
+		ArrayList<IGraphNode<RoomData, DoorwayData>> nodes = new ArrayList<IGraphNode<RoomData, DoorwayData>>(layout.nodeCount());
 		
 		Queue<RoomData> ordering = new LinkedList<RoomData>();
 		
-		// Repeatedly generate sections until all nodes have been visited
+		// List all graph nodes so that we can iterate over this list instead
+		// of using the graph's iterator. That avoids the risk of breaking
+		// the graph's iterator during removals.
 		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
 		{
+			nodes.add(node);
+		}
+		
+		// Repeatedly generate sections until all nodes have been visited
+		for (IGraphNode<RoomData, DoorwayData> node : nodes)
+		{
 			// If this room hasn't been visited (distance = -1), then use it as the core of a new section
-			// Otherwise, ignore it, since it was already processed
+			// Otherwise, ignore it, since it was already processed. Also make sure to check that room
+			// isn't null, which happens if the room was removed previously.
 			room = node.data();
-			if (room.getDistance() < 0)
+			if (room != null && room.getDistance() < 0)
 			{
 				// Perform a breadth-first search to tag surrounding nodes with distances
 				ordering.add(room);
@@ -427,13 +436,10 @@ public class MazeDesigner
 				
 				// The remaining rooms in the ordering are those that are at the
 				// frontier of structure. They must be removed to create a gap
-				// between this section and other sections. But we can't remove
-				// the rooms immediately because that could break the iterator
-				// for the graph.
-				if (!ordering.isEmpty())
+				// between this section and other sections.
+				while (!ordering.isEmpty())
 				{
-					removals.addAll(ordering);
-					ordering.clear();
+					ordering.remove().remove();
 				}
 				
 				// Check if this section contains enough rooms and capacity for doors
@@ -443,15 +449,13 @@ public class MazeDesigner
 				}
 				else
 				{
-					removals.addAll(section);
+					// Discard the whole section
+					for (RoomData target : section)
+					{
+						target.remove();
+					}
 				}
 			}
-		}
-		
-		// Remove all the rooms that were listed for removal
-		for (RoomData target : removals)
-		{
-			target.remove();
 		}
 		return cores;
 	}
@@ -581,8 +585,8 @@ public class MazeDesigner
 	{
 		// We have 4 objectives here...
 		// 1. Place the entrance to the maze
-		// 2. Place internal links connecting the different sections of the maze
-		// 3. Place links to other dungeons
+		// 2. Place links to other dungeons
+		// 3. Place internal links connecting the different sections of the maze
 		// 4. Place more internal links to confuse people
 		
 		// We need to start by counting the door capacity of each section and
@@ -608,6 +612,7 @@ public class MazeDesigner
 		
 		// The next task is to place internal links. These links must connect
 		// the different maze sections to create a strongly connected graph.
+		
 		
 	}
 	
