@@ -137,7 +137,7 @@ public class MazeBuilder
 			links.addAll(room.getOutboundLinks());
 			// Protected rooms must be decorated because they have links.
 			// Otherwise, choose randomly whether to decorate.
-			if (room.isProtected() && random.nextInt(MAX_DECORATION_CHANCE) < DECORATION_CHANCE)
+			if (room.isProtected() || random.nextInt(MAX_DECORATION_CHANCE) < DECORATION_CHANCE)
 			{
 				decorator = DecoratorFinder.find(room, random);
 				if (decorator != null)
