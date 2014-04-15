@@ -17,7 +17,7 @@ public class MazeBuilder
 {
 	private static final int POCKET_WALL_GAP = 4;
 	private static final int DECORATION_CHANCE = 1;
-	private static final int MAX_DECORATION_CHANCE = 4;
+	private static final int MAX_DECORATION_CHANCE = 3;
 	
 	private MazeBuilder() { }
 	
@@ -142,11 +142,11 @@ public class MazeBuilder
 				decorator = DecoratorFinder.find(room, random);
 				if (decorator != null)
 				{
-					decorator.decorate(room, random, properties);
+					decorator.decorate(room, world, offset, random, properties);
 				}
 			}
 		}
-		// Iterate over all links plans and place links in the world
+		// Iterate over all link plans and place links in the world
 		for (LinkPlan link : links)
 		{
 			// TODO: Add link placement code here!
@@ -323,15 +323,15 @@ public class MazeBuilder
 		}
 		for (x = minX; x <= maxX; x++)
 		{
-			for (y = minY; y <= maxY; y++)
+			for (y = minY + 1; y < maxY; y++)
 			{
 				setBlockDirectly(world, x, y, minZ, blockID, metadata);
 				setBlockDirectly(world, x, y, maxZ, blockID, metadata);
 			}
 		}
-		for (z = minZ; z <= maxZ; z++)
+		for (z = minZ + 1; z < maxZ; z++)
 		{
-			for (y = minY; y <= maxY; y++)
+			for (y = minY + 1; y < maxY; y++)
 			{
 				setBlockDirectly(world, minX, y, z, blockID, metadata);
 				setBlockDirectly(world, maxX, y, z, blockID, metadata);
