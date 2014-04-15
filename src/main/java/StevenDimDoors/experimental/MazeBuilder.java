@@ -8,12 +8,16 @@ import net.minecraft.block.Block;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
+import StevenDimDoors.experimental.decorators.BaseDecorator;
+import StevenDimDoors.experimental.decorators.DecoratorFinder;
 import StevenDimDoors.mod_pocketDim.Point3D;
 import StevenDimDoors.mod_pocketDim.config.DDProperties;
 
 public class MazeBuilder
 {
 	private static final int POCKET_WALL_GAP = 4;
+	private static final int DECORATION_CHANCE = 1;
+	private static final int MAX_DECORATION_CHANCE = 4;
 	
 	private MazeBuilder() { }
 	
@@ -28,7 +32,7 @@ public class MazeBuilder
 		buildRooms(design.getLayout(), world, offset);
 		carveDoorways(design.getLayout(), world, offset, decay, random);
 		applyRandomDestruction(design, world, offset, decay, random);
-		decorateRooms(design.getLayout(), world, offset);
+		decorateRooms(design.getLayout(), world, offset, random, properties);
 		buildPocketWalls(design, world, offset, properties);
 	}
 	
@@ -117,9 +121,11 @@ public class MazeBuilder
 		}
 	}
 	
-	private static void decorateRooms(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
+	private static void decorateRooms(DirectedGraph<RoomData, DoorwayData> layout,
+			World world, Point3D offset, Random random, DDProperties properties)
 	{
 		RoomData room;
+		BaseDecorator decorator;
 		PartitionNode<RoomData> partition;
 		ArrayList<LinkPlan> links = new ArrayList<LinkPlan>();
 		
@@ -129,8 +135,16 @@ public class MazeBuilder
 			room = node.data();
 			partition = room.getPartitionNode();
 			links.addAll(room.getOutboundLinks());
-			
-			// TODO: Add decorator code here!
+			// Protected rooms must be decorated because they have links.
+			// Otherwise, choose randomly whether to decorate.
+			if (room.isProtected() && random.nextInt(MAX_DECORATION_CHANCE) < DECORATION_CHANCE)
+			{
+				decorator = DecoratorFinder.find(room, random);
+				if (decorator != null)
+				{
+					decorator.decorate(room, random, properties);
+				}
+			}
 		}
 		// Iterate over all links plans and place links in the world
 		for (LinkPlan link : links)
