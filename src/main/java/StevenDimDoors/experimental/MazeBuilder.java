@@ -12,6 +12,10 @@ import StevenDimDoors.experimental.decorators.BaseDecorator;
 import StevenDimDoors.experimental.decorators.DecoratorFinder;
 import StevenDimDoors.mod_pocketDim.Point3D;
 import StevenDimDoors.mod_pocketDim.config.DDProperties;
+import StevenDimDoors.mod_pocketDim.core.DimLink;
+import StevenDimDoors.mod_pocketDim.core.LinkTypes;
+import StevenDimDoors.mod_pocketDim.core.NewDimData;
+import StevenDimDoors.mod_pocketDim.core.PocketManager;
 
 public class MazeBuilder
 {
@@ -146,10 +150,39 @@ public class MazeBuilder
 				}
 			}
 		}
+		
 		// Iterate over all link plans and place links in the world
-		for (LinkPlan link : links)
+		NewDimData dimension = PocketManager.getDimensionData(world);
+		for (LinkPlan plan : links)
 		{
-			// TODO: Add link placement code here!
+			createLinkFromPlan(plan, dimension, world);
+		}
+	}
+	
+	private static void createLinkFromPlan(LinkPlan plan, NewDimData dimension, World world)
+	{
+		// TODO: Support entrances! Right now we'll treat them as dungeon doors for testing
+		
+		DimLink link;
+		Point3D source;
+		Point3D destination;
+		int orientation;
+		
+		source = plan.sourcePoint();
+		orientation = world.getBlockMetadata(source.getX(), source.getY(), source.getZ()) & 3;
+		
+		// Check the link type and set the destination accordingly
+		if (plan.isInternal())
+		{
+			// Create a link between sections
+			destination = plan.destinationPoint();
+			link = dimension.createLink(source.getX(), source.getY(), source.getZ(), LinkTypes.DUNGEON, orientation);
+			dimension.setDestination(link, destination.getX(), destination.getY(), destination.getZ());
+		}
+		else
+		{
+			// Create a dungeon link
+			dimension.createLink(source.getX(), source.getY(), source.getZ(), LinkTypes.DUNGEON, orientation);
 		}
 	}
 	
