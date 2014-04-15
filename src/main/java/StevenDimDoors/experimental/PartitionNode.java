@@ -2,11 +2,12 @@ package StevenDimDoors.experimental;
 
 import StevenDimDoors.mod_pocketDim.Point3D;
 
-public class PartitionNode extends BoundingBox
+public class PartitionNode<T> extends BoundingBox
 {
 	private PartitionNode parent;
 	private PartitionNode leftChild = null;
 	private PartitionNode rightChild = null;
+	private T data = null;
 	
 	public PartitionNode(int width, int height, int length)
 	{
@@ -121,5 +122,15 @@ public class PartitionNode extends BoundingBox
 		{
 			return this;
 		}
+	}
+	
+	public void setData(T value)
+	{
+		this.data = value;
+	}
+	
+	public T getData()
+	{
+		return data;
 	}
 }

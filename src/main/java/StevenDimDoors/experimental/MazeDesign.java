@@ -4,37 +4,23 @@ import java.util.ArrayList;
 
 public class MazeDesign
 {
-	private PartitionNode root;
-	private DirectedGraph<PartitionNode, DoorwayData> rooms;
-	private ArrayList<IGraphNode<PartitionNode, DoorwayData>> cores;
-	private ArrayList<BoundingBox> protectedAreas;
+	private PartitionNode<RoomData> root;
+	private DirectedGraph<RoomData, DoorwayData> layout;
 	
-	public MazeDesign(PartitionNode root, DirectedGraph<PartitionNode, DoorwayData> rooms,
-			ArrayList<IGraphNode<PartitionNode, DoorwayData>> cores)
+	public MazeDesign(PartitionNode<RoomData> root, DirectedGraph<RoomData, DoorwayData> layout)
 	{
 		this.root = root;
-		this.rooms = rooms;
-		this.cores = cores;
+		this.layout = layout;
 	}
 
-	public PartitionNode getRootPartition()
+	public PartitionNode<RoomData> getRootPartition()
 	{
 		return root;
 	}
 
-	public DirectedGraph<PartitionNode, DoorwayData> getRoomGraph()
+	public DirectedGraph<RoomData, DoorwayData> getLayout()
 	{
-		return rooms;
-	}
-
-	public ArrayList<IGraphNode<PartitionNode, DoorwayData>> getCoreNodes()
-	{
-		return cores;
-	}
-	
-	public ArrayList<BoundingBox> getProtectedAreas()
-	{
-		return protectedAreas;
+		return layout;
 	}
 	
 	public int width()

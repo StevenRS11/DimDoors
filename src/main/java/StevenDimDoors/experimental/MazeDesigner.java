@@ -1,8 +1,9 @@
 package StevenDimDoors.experimental;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Random;
@@ -25,54 +26,46 @@ public class MazeDesigner
 	public static MazeDesign generate(Random random)
 	{
 		// Construct a random binary space partitioning of our maze volume
-		PartitionNode root = partitionRooms(MAZE_WIDTH, MAZE_HEIGHT, MAZE_LENGTH, SPLIT_COUNT, random);
+		PartitionNode<RoomData> root = partitionRooms(MAZE_WIDTH, MAZE_HEIGHT, MAZE_LENGTH, SPLIT_COUNT, random);
 
-		// List all the leaf nodes of the partition tree, which denote individual rooms
-		ArrayList<PartitionNode> partitions = new ArrayList<PartitionNode>(1 << SPLIT_COUNT);
-		listRoomPartitions(root, partitions);
+		// Attach rooms to all the leaf nodes of the partition tree
+		ArrayList<RoomData> rooms = new ArrayList<RoomData>(1 << SPLIT_COUNT);
+		attachRooms(root, rooms);
+		
+		// Shuffle the list of rooms so that they're not listed in any ordered way in the room graph
+		// This is the only convenient way of randomizing the maze sections generated later
+		Collections.shuffle(rooms, random);
 		
 		// Construct an adjacency graph of the rooms we've carved out. Two rooms are
 		// considered adjacent if and only if a doorway could connect them. Their
 		// common boundary must be large enough for a doorway.
-		DirectedGraph<PartitionNode, DoorwayData> rooms = createRoomGraph(root, partitions, random);
+		DirectedGraph<RoomData, DoorwayData> layout = createRoomGraph(root, rooms, random);
 		
 		// Cut out random subgraphs from the adjacency graph
-		ArrayList<IGraphNode<PartitionNode, DoorwayData>> cores = createMazeSections(rooms, random);
+		ArrayList<RoomData> cores = createMazeSections(layout, random);
 		
 		// Remove unnecessary passages through floors/ceilings and some from the walls
-		for (IGraphNode<PartitionNode, DoorwayData> core : cores)
+		for (RoomData core : cores)
 		{
-			pruneDoorways(core, rooms, random);
+			pruneDoorways(core.getLayoutNode(), layout, random);
 		}
 		
-		return new MazeDesign(root, rooms, cores);
+		// Set up the placement of dimensional doors within the maze
+		createMazeLinks(layout, cores, random);
+		
+		return new MazeDesign(root, layout);
 	}
 
-	private static void listRoomPartitions(PartitionNode node, ArrayList<PartitionNode> partitions)
+	private static void attachRooms(PartitionNode<RoomData> node, ArrayList<RoomData> partitions)
 	{
 		if (node.isLeaf())
 		{
-			partitions.add(node);
+			partitions.add(new RoomData(node));
 		}
 		else
 		{
-			listRoomPartitions(node.leftChild(), partitions);
-			listRoomPartitions(node.rightChild(), partitions);
-		}
-	}
-	
-	private static void removeRoomPartitions(PartitionNode node)
-	{
-		// Remove a node and any of its ancestors that become leaf nodes
-		PartitionNode parent;
-		PartitionNode current;
-		
-		current = node;
-		while (current != null && current.isLeaf())
-		{
-			parent = current.parent();
-			current.remove();
-			current = parent;
+			attachRooms(node.leftChild(), partitions);
+			attachRooms(node.rightChild(), partitions);
 		}
 	}
 	
@@ -140,35 +133,25 @@ public class MazeDesigner
 		}
 	}
 	
-	private static DirectedGraph<PartitionNode, DoorwayData> createRoomGraph(PartitionNode root, ArrayList<PartitionNode> partitions, Random random)
+	private static DirectedGraph<RoomData, DoorwayData> createRoomGraph(PartitionNode<RoomData> root, ArrayList<RoomData> rooms, Random random)
 	{
-		DirectedGraph<PartitionNode, DoorwayData> roomGraph = new DirectedGraph<PartitionNode, DoorwayData>();
-		HashMap<PartitionNode, IGraphNode<PartitionNode, DoorwayData>> roomsToGraph = new HashMap<PartitionNode, IGraphNode<PartitionNode, DoorwayData>>(2 * partitions.size());
-		
-		// Shuffle the list of rooms so that they're not listed in any ordered way in the room graph
-		// This is the only convenient way of randomizing the maze sections generated later
-		Collections.shuffle(partitions, random);
+		DirectedGraph<RoomData, DoorwayData> layout = new DirectedGraph<RoomData, DoorwayData>();
 		
 		// Add all rooms to a graph
-		// Also add them to a map so we can associate rooms with their graph nodes
-		// The map is needed for linking graph nodes based on adjacent partitions
-		for (PartitionNode partition : partitions)
+		for (RoomData room : rooms)
 		{
-			roomsToGraph.put(partition, roomGraph.addNode(partition));
+			room.addToLayout(layout);
 		}
-		
 		// Add edges for each room
-		for (IGraphNode<PartitionNode, DoorwayData> node : roomGraph.nodes())
+		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
 		{
-			findDoorways(node, root, roomsToGraph, roomGraph);
+			findDoorways(node.data(), root, layout);
 		}
-		
-		return roomGraph;
+		return layout;
 	}
 	
-	private static void findDoorways(IGraphNode<PartitionNode, DoorwayData> roomNode, PartitionNode root,
-			HashMap<PartitionNode, IGraphNode<PartitionNode, DoorwayData>> roomsToGraph,
-			DirectedGraph<PartitionNode, DoorwayData> roomGraph)
+	private static void findDoorways(RoomData room, PartitionNode<RoomData> root,
+			DirectedGraph<RoomData, DoorwayData> layout)
 	{
 		// This function finds rooms adjacent to a specified room that could be connected
 		// to it through a doorway. Edges are added to the room graph to denote rooms that
@@ -186,7 +169,7 @@ public class MazeDesigner
 		// there will always be a way to walk from any room to any other room.
 		
 		boolean[][] detected;
-		PartitionNode adjacent;
+		PartitionNode<RoomData> adjacent;
 		
 		int a, b, c;
 		int p, q, r;
@@ -195,11 +178,10 @@ public class MazeDesigner
 		Point3D otherMin;
 		Point3D otherMax;
 		DoorwayData doorway;
-		IGraphNode<PartitionNode, DoorwayData> adjacentNode;
 		
-		PartitionNode room = roomNode.data();
-		Point3D minCorner = room.minCorner();
-		Point3D maxCorner = room.maxCorner();
+		PartitionNode partition = room.getPartitionNode();
+		Point3D minCorner = partition.minCorner();
+		Point3D maxCorner = partition.maxCorner();
 		
 		int minX = minCorner.getX();
 		int minY = minCorner.getY();
@@ -209,9 +191,9 @@ public class MazeDesigner
 		int maxY = maxCorner.getY();
 		int maxZ = maxCorner.getZ();
 		
-		int width = room.width();
-		int height = room.height();
-		int length = room.length();
+		int width = partition.width();
+		int height = partition.height();
+		int length = partition.length();
 		
 		if (maxZ < root.maxCorner().getZ())
 		{
@@ -247,8 +229,7 @@ public class MazeDesigner
 								otherMin = new Point3D(minXI, minYI, maxZ);
 								otherMax = new Point3D(maxXI, maxYI, maxZ + 1);
 								doorway = new DoorwayData(otherMin, otherMax, DoorwayData.Z_AXIS);
-								adjacentNode = roomsToGraph.get(adjacent);
-								roomGraph.addEdge(roomNode, adjacentNode, doorway);
+								layout.addEdge(room.getLayoutNode(), adjacent.getData().getLayoutNode(), doorway);
 							}
 						}
 						else
@@ -295,8 +276,7 @@ public class MazeDesigner
 								otherMin = new Point3D(maxX, minYI, minZI);
 								otherMax = new Point3D(maxX + 1, maxYI, maxZI);
 								doorway = new DoorwayData(otherMin, otherMax, DoorwayData.X_AXIS);
-								adjacentNode = roomsToGraph.get(adjacent);
-								roomGraph.addEdge(roomNode, adjacentNode, doorway);
+								layout.addEdge(room.getLayoutNode(), adjacent.getData().getLayoutNode(), doorway);
 							}
 						}
 						else
@@ -343,8 +323,7 @@ public class MazeDesigner
 								otherMin = new Point3D(minXI, maxY, minZI);
 								otherMax = new Point3D(maxXI, maxY + 1, maxZI);
 								doorway = new DoorwayData(otherMin, otherMax, DoorwayData.Y_AXIS);
-								adjacentNode = roomsToGraph.get(adjacent);
-								roomGraph.addEdge(roomNode, adjacentNode, doorway);
+								layout.addEdge(room.getLayoutNode(), adjacent.getData().getLayoutNode(), doorway);
 							}
 						}
 						else
@@ -359,108 +338,130 @@ public class MazeDesigner
 		//Done!
 	}
 	
-	private static ArrayList<IGraphNode<PartitionNode, DoorwayData>> createMazeSections(DirectedGraph<PartitionNode, DoorwayData> roomGraph, Random random)
+	private static ArrayList<RoomData> createMazeSections(DirectedGraph<RoomData, DoorwayData> layout, Random random)
 	{
 		// The randomness of the sections generated here hinges on
 		// the nodes in the graph being in a random order. We assume
 		// that was handled in a previous step!
 		
-		final int MAX_DISTANCE = 2;
+		// We split the maze into sections by choosing core rooms and removing
+		// rooms that are a certain number of doorways away. However, for a section
+		// to be valid, it must also have enough space for at least two doors in
+		// rooms without floor holes. If a section can't fit two doors, more
+		// neighboring rooms are added until the necessary space is found or the
+		// search space is exhausted.
+		
+		final int MAX_DISTANCE = 2 + random.nextInt(2);
 		final int MIN_SECTION_ROOMS = 5;
+		final int MIN_SECTION_CAPACITY = 2;
 		
 		int distance;
-		IGraphNode<PartitionNode, DoorwayData> current;
-		IGraphNode<PartitionNode, DoorwayData> neighbor;
+		int capacity;
+		RoomData room;
+		RoomData neighbor;
+		boolean hasHoles;
+		IGraphNode<RoomData, DoorwayData> roomNode;
 		
-		ArrayList<IGraphNode<PartitionNode, DoorwayData>> cores = new ArrayList<IGraphNode<PartitionNode, DoorwayData>>();
-		ArrayList<IGraphNode<PartitionNode, DoorwayData>> removals = new ArrayList<IGraphNode<PartitionNode, DoorwayData>>();
-		ArrayList<IGraphNode<PartitionNode, DoorwayData>> section = new ArrayList<IGraphNode<PartitionNode, DoorwayData>>();
+		ArrayList<RoomData> cores = new ArrayList<RoomData>();
+		ArrayList<RoomData> section = new ArrayList<RoomData>();
+		ArrayList<IGraphNode<RoomData, DoorwayData>> nodes = new ArrayList<IGraphNode<RoomData, DoorwayData>>(layout.nodeCount());
 		
-		Queue<IGraphNode<PartitionNode, DoorwayData>> ordering = new LinkedList<IGraphNode<PartitionNode, DoorwayData>>();
-		HashMap<IGraphNode<PartitionNode, DoorwayData>, Integer> distances = new HashMap<IGraphNode<PartitionNode, DoorwayData>, Integer>();
+		Queue<RoomData> ordering = new LinkedList<RoomData>();
+		
+		// List all graph nodes so that we can iterate over this list instead
+		// of using the graph's iterator. That avoids the risk of breaking
+		// the graph's iterator during removals.
+		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
+		{
+			nodes.add(node);
+		}
 		
 		// Repeatedly generate sections until all nodes have been visited
-		for (IGraphNode<PartitionNode, DoorwayData> node : roomGraph.nodes())
+		for (IGraphNode<RoomData, DoorwayData> node : nodes)
 		{
-			// If this node hasn't been visited, then use it as the core of a new section
-			// Otherwise, ignore it, since it was already processed
-			if (!distances.containsKey(node))
+			// If this room hasn't been visited (distance = -1), then use it as the core of a new section
+			// Otherwise, ignore it, since it was already processed. Also make sure to check that room
+			// isn't null, which happens if the room was removed previously.
+			room = node.data();
+			if (room != null && room.getDistance() < 0)
 			{
 				// Perform a breadth-first search to tag surrounding nodes with distances
-				distances.put(node, 0);
-				ordering.add(node);
+				ordering.add(room);
+				room.setDistance(0);
 				section.clear();
+				capacity = 0;
 				
-				while (!ordering.isEmpty())
+				while (room != null && (room.getDistance() <= MAX_DISTANCE || capacity < 2))
 				{
-					current = ordering.remove();
-					distance = distances.get(current) + 1;
+					ordering.remove();
+					section.add(room);
+					roomNode = room.getLayoutNode();
+					distance = room.getDistance() + 1;
+					hasHoles = false;
 					
-					if (distance <= MAX_DISTANCE + 1)
+					// Visit neighboring rooms and assign them distances,
+					// if they don't have a proper distance assigned already.
+					// Also check for floor holes.
+					for (IEdge<RoomData, DoorwayData> edge : roomNode.inbound())
 					{
-						section.add(current);
-						
-						// Visit neighboring nodes and assign them distances, if they don't
-						// have a distance assigned already
-						for (IEdge<PartitionNode, DoorwayData> edge : current.inbound())
+						neighbor = edge.head().data();
+						if (neighbor.getDistance() < 0)
 						{
-							neighbor = edge.head();
-							if (!distances.containsKey(neighbor))
-							{
-								distances.put(neighbor, distance);
-								ordering.add(neighbor);
-							}
+							neighbor.setDistance(distance);
+							ordering.add(neighbor);
 						}
-						for (IEdge<PartitionNode, DoorwayData> edge : current.outbound())
+						if (edge.data().axis() == DoorwayData.Y_AXIS)
 						{
-							neighbor = edge.tail();
-							if (!distances.containsKey(neighbor))
-							{
-								distances.put(neighbor, distance);
-								ordering.add(neighbor);
-							}
+							hasHoles = true;
 						}
 					}
-					else
+					for (IEdge<RoomData, DoorwayData> edge : roomNode.outbound())
 					{
-						removals.add(current);
-						break;
+						neighbor = edge.tail().data();
+						if (neighbor.getDistance() < 0)
+						{
+							neighbor.setDistance(distance);
+							ordering.add(neighbor);
+						}
 					}
+					
+					// Count this room's door capacity if it has no floor holes
+					if (!hasHoles)
+					{
+						capacity += room.estimateDoorCapacity();
+					}
+					
+					room = ordering.peek();
 				}
 				
-				// List nodes that have a distance of exactly MAX_DISTANCE + 1
-				// Those are precisely the nodes that remain in the queue
-				// We can't remove them immediately because that could break
-				// the iterator for the graph.
+				// The remaining rooms in the ordering are those that are at the
+				// frontier of structure. They must be removed to create a gap
+				// between this section and other sections.
 				while (!ordering.isEmpty())
 				{
-					removals.add(ordering.remove());
+					ordering.remove().remove();
 				}
 				
-				// Check if this section contains enough rooms
-				if (section.size() >= MIN_SECTION_ROOMS)
+				// Check if this section contains enough rooms and capacity for doors
+				if (section.size() >= MIN_SECTION_ROOMS && capacity >= MIN_SECTION_CAPACITY)
 				{
-					cores.add(node);
+					cores.add(node.data());
 				}
 				else
 				{
-					removals.addAll(section);
+					// Discard the whole section
+					for (RoomData target : section)
+					{
+						target.remove();
+					}
 				}
 			}
-		}
-		
-		// Remove all the nodes that were listed for removal
-		// Also remove unused partitions from the partition tree
-		for (IGraphNode<PartitionNode, DoorwayData> node : removals)
-		{
-			removeRoomPartitions(node.data());
-			roomGraph.removeNode(node);
 		}
 		return cores;
 	}
 	
-	private static void pruneDoorways(IGraphNode<PartitionNode, DoorwayData> core,
-			DirectedGraph<PartitionNode, DoorwayData> rooms, Random random)
+	private static void pruneDoorways(IGraphNode<RoomData, DoorwayData> core,
+			DirectedGraph<RoomData, DoorwayData> layout, Random random)
 	{
 		// We receive a node for one of the rooms in a section of the maze
 		// and we need to remove as many floor doorways as possible while
@@ -478,12 +479,12 @@ public class MazeDesigner
 		// idea applies for the other doorways, plus some randomness.
 		
 		// First, list all nodes in the subgraph
-		IGraphNode<PartitionNode, DoorwayData> current;
-		IGraphNode<PartitionNode, DoorwayData> neighbor;
+		IGraphNode<RoomData, DoorwayData> current;
+		IGraphNode<RoomData, DoorwayData> neighbor;
 		
-		Stack<IGraphNode<PartitionNode, DoorwayData>> ordering = new Stack<IGraphNode<PartitionNode, DoorwayData>>();
-		ArrayList<IGraphNode<PartitionNode, DoorwayData>> subgraph = new ArrayList<IGraphNode<PartitionNode, DoorwayData>>(64);
-		DisjointSet<IGraphNode<PartitionNode, DoorwayData>> components = new DisjointSet<IGraphNode<PartitionNode, DoorwayData>>(128);
+		Stack<IGraphNode<RoomData, DoorwayData>> ordering = new Stack<IGraphNode<RoomData, DoorwayData>>();
+		ArrayList<IGraphNode<RoomData, DoorwayData>> subgraph = new ArrayList<IGraphNode<RoomData, DoorwayData>>(64);
+		DisjointSet<IGraphNode<RoomData, DoorwayData>> components = new DisjointSet<IGraphNode<RoomData, DoorwayData>>(128);
 		
 		ordering.add(core);
 		components.makeSet(core);
@@ -492,7 +493,7 @@ public class MazeDesigner
 			current = ordering.pop();
 			subgraph.add(current);
 			
-			for (IEdge<PartitionNode, DoorwayData> edge : current.inbound())
+			for (IEdge<RoomData, DoorwayData> edge : current.inbound())
 			{
 				neighbor = edge.head();
 				if (components.makeSet(neighbor))
@@ -500,7 +501,7 @@ public class MazeDesigner
 					ordering.add(neighbor);
 				}
 			}
-			for (IEdge<PartitionNode, DoorwayData> edge : current.outbound())
+			for (IEdge<RoomData, DoorwayData> edge : current.outbound())
 			{
 				neighbor = edge.tail();
 				if (components.makeSet(neighbor))
@@ -510,15 +511,17 @@ public class MazeDesigner
 			}
 		}
 		
-		// Now iterate over the list of nodes and merge their sets
-		// We only have to look at outbound edges since inbound edges mirror them
-		// Also list any Y_AXIS doorways we come across
-		ArrayList<IEdge<PartitionNode, DoorwayData>> targets =
-				new ArrayList<IEdge<PartitionNode, DoorwayData>>();
+		// Now iterate over the list of nodes and merge their sets based on
+		// being connected by X_AXIS or Z_AXIS doorways. We only have to look
+		// at outbound edges since inbound edges mirror them. List any Y_AXIS
+		// doorways we come across to consider removing them later, depending
+		// on their impact on connectedness.
+		ArrayList<IEdge<RoomData, DoorwayData>> targets =
+				new ArrayList<IEdge<RoomData, DoorwayData>>();
 		
-		for (IGraphNode<PartitionNode, DoorwayData> room : subgraph)
+		for (IGraphNode<RoomData, DoorwayData> room : subgraph)
 		{
-			for (IEdge<PartitionNode, DoorwayData> passage : room.outbound())
+			for (IEdge<RoomData, DoorwayData> passage : room.outbound())
 			{
 				if (passage.data().axis() != DoorwayData.Y_AXIS)
 				{
@@ -535,11 +538,12 @@ public class MazeDesigner
 		Collections.shuffle(targets, random);
 		
 		// Merge sets together and remove unnecessary doorways
-		for (IEdge<PartitionNode, DoorwayData> passage : targets)
+		for (IEdge<RoomData, DoorwayData> passage : targets)
 		{
 			if (!components.mergeSets(passage.head(), passage.tail()))
 			{
-				rooms.removeEdge(passage);
+				layout.removeEdge(passage);
+				
 			}
 		}
 		
@@ -548,13 +552,13 @@ public class MazeDesigner
 		components.clear();
 		targets.clear();
 		
-		for (IGraphNode<PartitionNode, DoorwayData> room : subgraph)
+		for (IGraphNode<RoomData, DoorwayData> room : subgraph)
 		{
 			components.makeSet(room);
 		}
-		for (IGraphNode<PartitionNode, DoorwayData> room : subgraph)
+		for (IGraphNode<RoomData, DoorwayData> room : subgraph)
 		{
-			for (IEdge<PartitionNode, DoorwayData> passage : room.outbound())
+			for (IEdge<RoomData, DoorwayData> passage : room.outbound())
 			{
 				if (passage.data().axis() == DoorwayData.Y_AXIS)
 				{
@@ -567,13 +571,198 @@ public class MazeDesigner
 			}
 		}
 		Collections.shuffle(targets, random);
-		for (IEdge<PartitionNode, DoorwayData> passage : targets)
+		for (IEdge<RoomData, DoorwayData> passage : targets)
 		{
 			if (!components.mergeSets(passage.head(), passage.tail()) && random.nextBoolean())
 			{
-				rooms.removeEdge(passage);
+				layout.removeEdge(passage);
 			}
 		}
 	}
 	
+	private static void createMazeLinks(DirectedGraph<RoomData, DoorwayData> layout,
+			ArrayList<RoomData> cores, Random random)
+	{
+		// We have 4 objectives here...
+		// 1. Place the entrance to the maze
+		// 2. Place links to other dungeons
+		// 3. Place internal links connecting the different sections of the maze
+		// 4. Place more internal links to confuse people
+		
+		// We need to start by building up data for each section, such as their
+		// door capacities and the rooms available for placing doors.
+		int index;
+		int count;
+		SectionData selection;
+		SectionData destination;
+		ArrayList<SectionData> allSections;
+		ArrayList<SectionData> usableSections;
+
+		// Check if there is only one section. Our concerns differ depending
+		// on whether there is one or more than one.
+		if (cores.size() > 1)
+		{	
+			// More than 1 section
+			allSections = new ArrayList<SectionData>(cores.size());
+			for (RoomData core : cores)
+			{
+				allSections.add( SectionData.createFromCore(core.getLayoutNode()) );
+			}
+			usableSections = (ArrayList<SectionData>) allSections.clone();
+			
+			// Select the room in which to place the entrance.
+			// We can safely consider all sections because createMazeSections()
+			// guarantees that each one has at least the capacity for 2 doors.
+			// Remove the selected section if it falls below a capacity of 2
+			// since we need to leave at least 1 capacity for section linking.
+			index = random.nextInt(usableSections.size());
+			selection = usableSections.get(index);
+			selection.createEntranceLink(random);
+			if (selection.capacity() <= 1)
+			{
+				usableSections.remove(index);
+			}
+			
+			// Place 3 to 4 dungeon doors in random sections
+			// Remove any sections that fall under a capacity of 2.
+			count = 3 + random.nextInt(2);
+			for (; count > 0 && !usableSections.isEmpty(); count--)
+			{
+				index = random.nextInt(usableSections.size());
+				selection = usableSections.get(index);
+				selection.createDungeonLink(random);
+				if (selection.capacity() <= 1)
+				{
+					usableSections.remove(index);
+				}
+			}
+			
+			// The next task is to place internal links. These links must connect
+			// the different maze sections to create a strongly connected graph.
+			linkMazeSections(allSections, random);
+			
+			// Add 1 to 3 extra internal links to confuse people
+			usableSections.clear();
+			for (SectionData section : allSections)
+			{
+				if (section.capacity() > 0)
+				{
+					usableSections.add(section);
+				}
+			}
+			count = 1 + random.nextInt(3);
+			for (; count > 0 && !usableSections.isEmpty(); count--)
+			{
+				index = random.nextInt(usableSections.size());
+				selection = usableSections.get(index);
+				destination = allSections.get( random.nextInt(allSections.size()) );
+				selection.reserveSectionLink(destination, random);
+				if (selection.capacity() == 0)
+				{
+					usableSections.remove(index);
+				}
+			}
+			
+			// Finally, make sure to process all reservations for section links.
+			for (SectionData section : allSections)
+			{
+				section.processReservedLinks(random);
+			}
+		}
+		else
+		{
+			// Only 1 section
+			selection = SectionData.createFromCore(cores.get(0).getLayoutNode());
+			// Place entrance door in a random room
+			selection.createEntranceLink(random);
+			// Place 3 to 4 dungeon doors or fewer, based on capacity
+			count = Math.min(3 + random.nextInt(2), selection.capacity());
+			for (; count > 0; count--)
+			{
+				selection.createDungeonLink(random);
+			}
+		}
+	}
+	
+	private static void linkMazeSections(ArrayList<SectionData> sections, Random random)
+	{
+		// This algorithm constructs links sections together using Dimensional Doors
+		// to create a random strongly connected graph. It takes into account capacity
+		// constraints as well. We assume that all sections have at least 1 door capacity.
+		final int EXTENSION_CHANCE = 2;
+		final int MAX_EXTENSION_CHANCE = 3;
+		
+		int index;
+		SectionData start;
+		SectionData current;
+		SectionData next;
+		
+		// Total spare capacity of the sections not in "remaining"
+		int capacity;
+		// Sections not in the graph
+		ArrayList<SectionData> remaining = (ArrayList<SectionData>) sections.clone();
+		// Sections that are part of an incomplete cycle
+		ArrayList<SectionData> attached = new ArrayList<SectionData>(sections.size());
+		// Sections that are part of a cycle and thus strongly connected
+		ArrayList<SectionData> connected = new ArrayList<SectionData>(sections.size());
+		// Sections that are part of a cycle and have spare capacity - used to start new cycles
+		ArrayList<SectionData> starters = new ArrayList<SectionData>(sections.size());
+		
+		// Shuffle remaining to achieve randomness
+		Collections.shuffle(remaining, random);
+		// Remove the starting node to serve as the base of our strongly connected graph
+		start = remaining.remove(remaining.size() - 1);
+		starters.add(start);
+		connected.add(start);
+		capacity = start.capacity();
+		
+		// Repeat until all sections are connected
+		while (!remaining.isEmpty())
+		{
+			// Select a section from which to start a new cycle
+			index = random.nextInt(starters.size());
+			start = starters.get(index);
+			// Select the first new section in the cycle and link to it
+			current = remaining.remove(remaining.size() - 1);
+			attached.add(current);
+			start.reserveSectionLink(current, random);
+			// Add the current section's capacity to the total, but subtract two to account
+			// for the link just created and for the future link from this section to another
+			capacity += current.capacity() - 2;
+			// Remove the starting section from starters if it has exhausted its capacity
+			if (start.capacity() == 0)
+			{
+				starters.remove(index);
+			}
+			
+			// Continue attaching sections to the partial cycle while there are are still sections
+			// left to be added and we have no spare capacity. Or we could randomly decide to
+			// continue even with spare capacity. Spare capacity means we could start a new cycle
+			// safely and still achieve strong connectivity. Randomness here influences the kinds
+			// of graphs we can get.
+			while (!remaining.isEmpty() && (capacity == 0 ||
+					random.nextInt(MAX_EXTENSION_CHANCE) < EXTENSION_CHANCE))
+			{
+				next = remaining.remove(remaining.size() - 1);
+				attached.add(next);
+				current.reserveSectionLink(next, random);
+				// Account for this section's capacity, but subtract one for
+				// the future link that will connect this section to another
+				capacity += next.capacity() - 1;
+				current = next;
+			}
+			next = connected.get(random.nextInt(connected.size()));
+			current.reserveSectionLink(next, random);
+			for (SectionData section : attached)
+			{
+				connected.add(section);
+				if (section.capacity() > 0)
+				{
+					starters.add(section);
+				}
+			}
+		}
+		
+		// Done! At this point, all sections are connected.
+	}
 }

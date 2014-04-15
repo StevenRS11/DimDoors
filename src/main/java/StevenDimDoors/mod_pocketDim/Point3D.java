@@ -55,6 +55,20 @@ public class Point3D implements Serializable {
 	{
 		return this.z = z;
 	}
+
+	public void add(int x, int y, int z)
+	{
+		this.x += x;
+		this.y += y;
+		this.z += z;
+	}
+
+	public void add(Point3D other)
+	{
+		this.x += other.x;
+		this.y += other.y;
+		this.z += other.z;
+	}
 	
 	@Override
 	public Point3D clone()

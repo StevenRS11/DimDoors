@@ -165,8 +165,8 @@ public class DirectedGraph<U, V>
 	{
 		Edge<U, V> innerEdge = (Edge<U, V>) edge;
 
-		// Check that this node actually belongs to this graph instance.
-		// Accepting foreign nodes could corrupt the graph's internal state.
+		// Check that this edge actually belongs to this graph instance.
+		// Accepting foreign edges could corrupt the graph's internal state.
 		if (innerEdge.graphEntry.owner() != edges)
 		{
 			throw new IllegalArgumentException("The specified edge does not belong to this graph.");
