@@ -477,7 +477,7 @@ public class PocketBuilder
 		}
 		*/
 		
-		MazeBuilder.generate(world, x, y, z, random);
+		MazeBuilder.generate(world, x, y, z, random, properties);
 
 		//Build the door
 		int doorOrientation = BlockRotator.transformMetadata(BlockRotator.EAST_DOOR_METADATA, orientation - BlockRotator.EAST_DOOR_METADATA + 2, properties.DimensionalDoorID);

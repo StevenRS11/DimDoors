@@ -1,18 +1,23 @@
 package StevenDimDoors.experimental;
 
+import java.util.ArrayList;
 import java.util.Random;
+import java.util.Stack;
 
 import net.minecraft.block.Block;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import StevenDimDoors.mod_pocketDim.Point3D;
+import StevenDimDoors.mod_pocketDim.config.DDProperties;
 
 public class MazeBuilder
 {
+	private static final int POCKET_WALL_GAP = 4;
+	
 	private MazeBuilder() { }
 	
-	public static void generate(World world, int x, int y, int z, Random random)
+	public static void generate(World world, int x, int y, int z, Random random, DDProperties properties)
 	{
 		// ISSUE FOR LATER: The room needs to be shifted so as to be centered on its entrance
 		
@@ -22,16 +27,85 @@ public class MazeBuilder
 		
 		buildRooms(design.getLayout(), world, offset);
 		carveDoorways(design.getLayout(), world, offset, decay, random);
-		
-		placeDoors(design.getLayout(), world, offset);
-		
 		applyRandomDestruction(design, world, offset, decay, random);
+		decorateRooms(design.getLayout(), world, offset);
+		buildPocketWalls(design, world, offset, properties);
 	}
 	
 	private static void applyRandomDestruction(MazeDesign design, World world,
 			Point3D offset, SphereDecayOperation decay, Random random)
 	{
-		//final int DECAY_BOX_SIZE = 8  
+		final int DECAY_BOX_SIZE = 7;
+		final int DECAY_OPERATIONS = 5 + random.nextInt(5);
+		final int DECAY_ATTEMPTS = 20;
+		
+		int x, y, z;
+		int successes = 0;
+		int attempts = 0;
+		PartitionNode root = design.getRootPartition();
+		
+		for (; successes < DECAY_OPERATIONS && attempts < DECAY_ATTEMPTS; attempts++)
+		{
+			// Select the coordinates at which to apply the decay operation
+			x = random.nextInt(design.width()) - DECAY_BOX_SIZE / 2;
+			y = random.nextInt(design.height()) - DECAY_BOX_SIZE / 2;
+			z = random.nextInt(design.length()) - DECAY_BOX_SIZE / 2;
+			
+			// Check that the decay operation would not impact any protected areas
+			// and mark the affected areas as decayed
+			if (markDecayArea(x, y, z, DECAY_BOX_SIZE, root))
+			{
+				// Apply decay
+				decay.apply(world, offset.getX() + x, offset.getY() + y, offset.getZ() + z,
+						DECAY_BOX_SIZE, DECAY_BOX_SIZE, DECAY_BOX_SIZE);
+				successes++;
+			}
+		}
+	}
+	
+	private static boolean markDecayArea(int x, int y, int z, int DECAY_BOX_SIZE, PartitionNode<RoomData> root)
+	{
+		// Check if a given PartitionNode intersects the decay area. If it's a leaf, then check
+		// if it's protected or not. Otherwise, check its children. The specific area is valid
+		// if and only if there are no protected rooms and at least one (unprotected) room in it.
+		// Also list the unprotected rooms to mark them if the decay operation will proceed.
+		
+		RoomData room;
+		PartitionNode<RoomData> partition;
+		ArrayList<RoomData> targets = new ArrayList<RoomData>();
+		Stack<PartitionNode<RoomData>> nodes = new Stack<PartitionNode<RoomData>>();
+		BoundingBox decayBounds = new BoundingBox(x, y, z, DECAY_BOX_SIZE, DECAY_BOX_SIZE, DECAY_BOX_SIZE);
+		
+		// Use depth-first search to explore all intersecting partitions
+		nodes.push(root);
+		while (!nodes.isEmpty())
+		{
+			partition = nodes.pop();
+			if (decayBounds.intersects(partition))
+			{
+				if (partition.isLeaf())
+				{
+					room = partition.getData();
+					if (room.isProtected())
+						return false;
+					targets.add(room);
+				}
+				else
+				{
+					if (partition.leftChild() != null)
+						nodes.push(partition.leftChild());
+					if (partition.rightChild() != null)
+						nodes.push(partition.rightChild());
+				}
+			}
+		}
+		// If execution has reached this point, then there were no protected rooms.
+		// Mark all intersecting rooms as decayed.
+		for (RoomData target : targets)
+		{
+			target.setDecayed(true);
+		}
+		return !targets.isEmpty();
 	}
 
 	private static void buildRooms(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
@@ -43,19 +117,25 @@ public class MazeBuilder
 		}
 	}
 	
-	private static void placeDoors(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
+	private static void decorateRooms(DirectedGraph<RoomData, DoorwayData> layout, World world, Point3D offset)
 	{
+		RoomData room;
+		PartitionNode<RoomData> partition;
+		ArrayList<LinkPlan> links = new ArrayList<LinkPlan>();
+		
+		// Iterate over all rooms and apply decorators
 		for (IGraphNode<RoomData, DoorwayData> node : layout.nodes())
 		{
-			RoomData room = node.data();
-			Point3D minCorner = room.getPartitionNode().minCorner();
-			if (!room.getOutboundLinks().isEmpty())
-			{
-				setBlockDirectly(world, offset.getX() + minCorner.getX(), offset.getY() + minCorner.getY() + 1,
-						offset.getZ() + minCorner.getZ(), Block.glowStone.blockID, 0);
-				setBlockDirectly(world, offset.getX() + minCorner.getX(), offset.getY() + minCorner.getY() + 2,
-						offset.getZ() + minCorner.getZ(), Block.glowStone.blockID, 0);
-			}
+			room = node.data();
+			partition = room.getPartitionNode();
+			links.addAll(room.getOutboundLinks());
+			
+			// TODO: Add decorator code here!
+		}
+		// Iterate over all links plans and place links in the world
+		for (LinkPlan link : links)
+		{
+			// TODO: Add link placement code here!
 		}
 	}
 	
@@ -70,12 +150,19 @@ public class MazeBuilder
 		{
 			for (IEdge<RoomData, DoorwayData> passage : node.outbound())
 			{
+				// Carve out the passage
 				doorway = passage.data();
 				axis = doorway.axis();
 				lower = doorway.minCorner();
 				carveDoorway(world, axis, offset.getX() + lower.getX(), offset.getY() + lower.getY(),
 						offset.getZ() + lower.getZ(), doorway.width(), doorway.height(), doorway.length(),
 						decay, random);
+				
+				// If this is a vertical passage, then mark the upper room as decayed
+				if (axis == DoorwayData.Y_AXIS)
+				{
+					passage.tail().data().setDecayed(true);
+				}
 			}
 		}
 	}
@@ -86,6 +173,8 @@ public class MazeBuilder
 		final int MIN_DOUBLE_DOOR_SPAN = 10;
 		
 		int gap;
+		int rx;
+		int rz;
 		switch (axis)
 		{
 			case DoorwayData.X_AXIS:
@@ -150,9 +239,10 @@ public class MazeBuilder
 					{
 						gap = 6;
 					}
-					decay.apply(world,
-							x + random.nextInt(width - gap - 1) + 1, y - 1,
-							z + random.nextInt(length - gap - 1) + 1, gap, 4, gap);
+					rx = x + random.nextInt(width - gap - 1) + 1;
+					rz = z + random.nextInt(length - gap - 1) + 1;
+					carveHole(world, rx + gap / 2, y, rz + gap / 2);
+					decay.apply(world, rx, y - 1, rz, gap, 4, gap);
 				}
 				else
 				{
@@ -182,6 +272,19 @@ public class MazeBuilder
 	{
 		setBlockDirectly(world, x, y, z, 0, 0);
 		setBlockDirectly(world, x, y + 1, z, 0, 0);
+	}
+	
+	private static void buildPocketWalls(MazeDesign design, World world, Point3D offset, DDProperties properties)
+	{
+		// Build the inner Fabric of Reality box
+		Point3D minCorner = new Point3D(-POCKET_WALL_GAP - 1, -POCKET_WALL_GAP - 1, -POCKET_WALL_GAP - 1);
+		Point3D maxCorner = new Point3D(design.width() + POCKET_WALL_GAP, design.height() + POCKET_WALL_GAP, design.length() + POCKET_WALL_GAP);
+		buildBox(world, offset, minCorner, maxCorner, properties.FabricBlockID, 0);
+		
+		// Build the outer Eternal Fabric box
+		minCorner.add(-1, -1, -1);
+		maxCorner.add(1, 1, 1);
+		buildBox(world, offset, minCorner, maxCorner, properties.PermaFabricBlockID, 0);
 	}
 	
 	private static void buildBox(World world, Point3D offset, Point3D minCorner, Point3D maxCorner, int blockID, int metadata)

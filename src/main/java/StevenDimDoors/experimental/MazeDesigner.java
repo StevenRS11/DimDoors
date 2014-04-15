@@ -589,93 +589,180 @@ public class MazeDesigner
 		// 3. Place internal links connecting the different sections of the maze
 		// 4. Place more internal links to confuse people
 		
-		// We need to start by counting the door capacity of each section and
-		// listing which rooms can have doors or destinations for each section.
+		// We need to start by building up data for each section, such as their
+		// door capacities and the rooms available for placing doors.
 		int index;
-		int[] capacity = new int[cores.size()];
-		ArrayList<RoomData>[] sourceRooms = (ArrayList<RoomData>[]) Array.newInstance(cores.getClass(), cores.size());
-		ArrayList<RoomData>[] destinationRooms = (ArrayList<RoomData>[]) Array.newInstance(cores.getClass(), cores.size());
+		int count;
+		SectionData selection;
+		SectionData destination;
+		ArrayList<SectionData> allSections;
+		ArrayList<SectionData> usableSections;
 
-		for (index = 0; index < sourceRooms.length; index++)
-		{
-			sourceRooms[index] = new ArrayList<RoomData>();
-			destinationRooms[index] = new ArrayList<RoomData>();
-			capacity[index] = listLinkRooms(cores.get(index).getLayoutNode(), sourceRooms[index], destinationRooms[index]);
-		}
-		
-		// Now we select the room in which to place the entrance.
-		// We can safely assume all source room lists are non-empty because
-		// createMazeSections() guarantees that each section has at least
-		// the capacity for 2 doors.
-		index = random.nextInt(sourceRooms.length);
-		createEntranceLink(sourceRooms[index], random.nextInt(sourceRooms[index].size()));
-		
-		// The next task is to place internal links. These links must connect
-		// the different maze sections to create a strongly connected graph.
-		
-		
-	}
-	
-	private static int listLinkRooms(IGraphNode<RoomData, DoorwayData> core,
-			ArrayList<RoomData> sourceRooms, ArrayList<RoomData> destinationRooms)
-	{
-		int capacity = 0;
-		boolean hasHoles;
-		RoomData currentRoom;
-		IGraphNode<RoomData, DoorwayData> current;
-		IGraphNode<RoomData, DoorwayData> neighbor;
-		Stack<IGraphNode<RoomData, DoorwayData>> ordering = new Stack<IGraphNode<RoomData, DoorwayData>>();
-		HashSet<IGraphNode<RoomData, DoorwayData>> visited = new HashSet<IGraphNode<RoomData, DoorwayData>>();
-		
-		visited.add(core);
-		ordering.add(core);
-		while (!ordering.isEmpty())
-		{
-			current = ordering.pop();
-			hasHoles = false;
-			
-			for (IEdge<RoomData, DoorwayData> edge : current.outbound())
+		// Check if there is only one section. Our concerns differ depending
+		// on whether there is one or more than one.
+		if (cores.size() > 1)
+		{	
+			// More than 1 section
+			allSections = new ArrayList<SectionData>(cores.size());
+			for (RoomData core : cores)
 			{
-				neighbor = edge.tail();
-				if (visited.add(neighbor))
-				{
-					ordering.add(neighbor);
-				}
+				allSections.add( SectionData.createFromCore(core.getLayoutNode()) );
 			}
-			for (IEdge<RoomData, DoorwayData> edge : current.inbound())
+			usableSections = (ArrayList<SectionData>) allSections.clone();
+			
+			// Select the room in which to place the entrance.
+			// We can safely consider all sections because createMazeSections()
+			// guarantees that each one has at least the capacity for 2 doors.
+			// Remove the selected section if it falls below a capacity of 2
+			// since we need to leave at least 1 capacity for section linking.
+			index = random.nextInt(usableSections.size());
+			selection = usableSections.get(index);
+			selection.createEntranceLink(random);
+			if (selection.capacity() <= 1)
 			{
-				neighbor = edge.head();
-				if (visited.add(neighbor))
+				usableSections.remove(index);
+			}
+			
+			// Place 3 to 4 dungeon doors in random sections
+			// Remove any sections that fall under a capacity of 2.
+			count = 3 + random.nextInt(2);
+			for (; count > 0 && !usableSections.isEmpty(); count--)
+			{
+				index = random.nextInt(usableSections.size());
+				selection = usableSections.get(index);
+				selection.createDungeonLink(random);
+				if (selection.capacity() <= 1)
 				{
-					ordering.add(neighbor);
-				}
-				if (edge.data().axis() == DoorwayData.Y_AXIS)
-				{
-					hasHoles = true;
+					usableSections.remove(index);
 				}
 			}
 			
-			if (!hasHoles)
+			// The next task is to place internal links. These links must connect
+			// the different maze sections to create a strongly connected graph.
+			linkMazeSections(allSections, random);
+			
+			// Add 1 to 3 extra internal links to confuse people
+			usableSections.clear();
+			for (SectionData section : allSections)
 			{
-				currentRoom = current.data();
-				destinationRooms.add(currentRoom);
-				if (currentRoom.estimateDoorCapacity() > 0)
+				if (section.capacity() > 0)
 				{
-					capacity += currentRoom.estimateDoorCapacity();
-					sourceRooms.add(currentRoom);
+					usableSections.add(section);
+				}
+			}
+			count = 1 + random.nextInt(3);
+			for (; count > 0 && !usableSections.isEmpty(); count--)
+			{
+				index = random.nextInt(usableSections.size());
+				selection = usableSections.get(index);
+				destination = allSections.get( random.nextInt(allSections.size()) );
+				selection.reserveSectionLink(destination, random);
+				if (selection.capacity() == 0)
+				{
+					usableSections.remove(index);
+				}
+			}
+			
+			// Finally, make sure to process all reservations for section links.
+			for (SectionData section : allSections)
+			{
+				section.processReservedLinks(random);
+			}
+		}
+		else
+		{
+			// Only 1 section
+			selection = SectionData.createFromCore(cores.get(0).getLayoutNode());
+			// Place entrance door in a random room
+			selection.createEntranceLink(random);
+			// Place 3 to 4 dungeon doors or fewer, based on capacity
+			count = Math.min(3 + random.nextInt(2), selection.capacity());
+			for (; count > 0; count--)
+			{
+				selection.createDungeonLink(random);
+			}
+		}
+	}
+	
+	private static void linkMazeSections(ArrayList<SectionData> sections, Random random)
+	{
+		// This algorithm constructs links sections together using Dimensional Doors
+		// to create a random strongly connected graph. It takes into account capacity
+		// constraints as well. We assume that all sections have at least 1 door capacity.
+		final int EXTENSION_CHANCE = 2;
+		final int MAX_EXTENSION_CHANCE = 3;
+		
+		int index;
+		SectionData start;
+		SectionData current;
+		SectionData next;
+		
+		// Total spare capacity of the sections not in "remaining"
+		int capacity;
+		// Sections not in the graph
+		ArrayList<SectionData> remaining = (ArrayList<SectionData>) sections.clone();
+		// Sections that are part of an incomplete cycle
+		ArrayList<SectionData> attached = new ArrayList<SectionData>(sections.size());
+		// Sections that are part of a cycle and thus strongly connected
+		ArrayList<SectionData> connected = new ArrayList<SectionData>(sections.size());
+		// Sections that are part of a cycle and have spare capacity - used to start new cycles
+		ArrayList<SectionData> starters = new ArrayList<SectionData>(sections.size());
+		
+		// Shuffle remaining to achieve randomness
+		Collections.shuffle(remaining, random);
+		// Remove the starting node to serve as the base of our strongly connected graph
+		start = remaining.remove(remaining.size() - 1);
+		starters.add(start);
+		connected.add(start);
+		capacity = start.capacity();
+		
+		// Repeat until all sections are connected
+		while (!remaining.isEmpty())
+		{
+			// Select a section from which to start a new cycle
+			index = random.nextInt(starters.size());
+			start = starters.get(index);
+			// Select the first new section in the cycle and link to it
+			current = remaining.remove(remaining.size() - 1);
+			attached.add(current);
+			start.reserveSectionLink(current, random);
+			// Add the current section's capacity to the total, but subtract two to account
+			// for the link just created and for the future link from this section to another
+			capacity += current.capacity() - 2;
+			// Remove the starting section from starters if it has exhausted its capacity
+			if (start.capacity() == 0)
+			{
+				starters.remove(index);
+			}
+			
+			// Continue attaching sections to the partial cycle while there are are still sections
+			// left to be added and we have no spare capacity. Or we could randomly decide to
+			// continue even with spare capacity. Spare capacity means we could start a new cycle
+			// safely and still achieve strong connectivity. Randomness here influences the kinds
+			// of graphs we can get.
+			while (!remaining.isEmpty() && (capacity == 0 ||
+					random.nextInt(MAX_EXTENSION_CHANCE) < EXTENSION_CHANCE))
+			{
+				next = remaining.remove(remaining.size() - 1);
+				attached.add(next);
+				current.reserveSectionLink(next, random);
+				// Account for this section's capacity, but subtract one for
+				// the future link that will connect this section to another
+				capacity += next.capacity() - 1;
+				current = next;
+			}
+			next = connected.get(random.nextInt(connected.size()));
+			current.reserveSectionLink(next, random);
+			for (SectionData section : attached)
+			{
+				connected.add(section);
+				if (section.capacity() > 0)
+				{
+					starters.add(section);
 				}
 			}
 		}
-		return capacity;
-	}
-	
-	private static void createEntranceLink(ArrayList<RoomData> sources, int index)
-	{
-		RoomData entranceRoom = sources.get(index);
-		LinkPlan.createEntranceLink(entranceRoom);
-		if (entranceRoom.getRemainingDoorCapacity() == 0)
-		{
-			sources.remove(index);
-		}
+		
+		// Done! At this point, all sections are connected.
 	}
 }

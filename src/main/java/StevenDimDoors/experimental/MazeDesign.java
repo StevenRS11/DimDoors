@@ -4,16 +4,16 @@ import java.util.ArrayList;
 
 public class MazeDesign
 {
-	private PartitionNode root;
+	private PartitionNode<RoomData> root;
 	private DirectedGraph<RoomData, DoorwayData> layout;
 	
-	public MazeDesign(PartitionNode root, DirectedGraph<RoomData, DoorwayData> layout)
+	public MazeDesign(PartitionNode<RoomData> root, DirectedGraph<RoomData, DoorwayData> layout)
 	{
 		this.root = root;
 		this.layout = layout;
 	}
 
-	public PartitionNode getRootPartition()
+	public PartitionNode<RoomData> getRootPartition()
 	{
 		return root;
 	}
